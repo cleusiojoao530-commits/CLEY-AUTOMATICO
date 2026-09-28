@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "autoReply": true,
+    "prefix": ".",
+    "name": "CLEY AUTOMATICO"
+  },
+  "owner": "258856662085",
+  "groups": {},
+  "global": {
+    "blockedGroups": [],
+    "admins": []
+  }
+}
