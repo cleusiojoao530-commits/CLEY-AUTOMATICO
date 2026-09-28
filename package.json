@@ -1,0 +1,15 @@
+{
+  "name": "cley-automatico-cd-vodanet",
+  "version": "4.0.0",
+  "description": "CLEY Automatico - bot WhatsApp profissional para C.D VODANET",
+  "main": "index.js",
+  "scripts": {"start": "node index.js"},
+  "engines": {"node": ">=20"},
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
