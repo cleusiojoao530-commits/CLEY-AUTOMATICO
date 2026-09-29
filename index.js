@@ -1,28 +1,89 @@
 require('dotenv').config();
 const fs=require('fs');const path=require('path');const express=require('express');const pino=require('pino');
+const QRCode=require('qrcode');
 const {default:makeWASocket,useMultiFileAuthState,DisconnectReason,fetchLatestBaileysVersion,makeCacheableSignalKeyStore}=require('@whiskeysockets/baileys');
-const PORT=Number(process.env.PORT||3000);const PREFIX=process.env.PREFIX||'.';const OWNER=String(process.env.OWNER_NUMBER||'').replace(/\D/g,'');const PHONE=String(process.env.PHONE_NUMBER||'').replace(/\D/g,'');
+
+const PORT=Number(process.env.PORT||3000);const PREFIX=process.env.PREFIX||'.';const OWNER=String(process.env.OWNER_NUMBER||'').replace(/\D/g,'');
 const DB_FILE=path.join(__dirname,'database.json');const MENU_IMAGE=path.join(__dirname,'media','menu.png');const logger=pino({level:'info'});
+
 function loadDB(){try{return JSON.parse(fs.readFileSync(DB_FILE,'utf8'));}catch{return {settings:{autoReply:true,prefix:PREFIX},owner:OWNER,groups:{},global:{blockedGroups:[],admins:[]}};}}
 let db=loadDB();if(!db.groups)db.groups={};if(!db.global)db.global={blockedGroups:[],admins:[]};function saveDB(){fs.writeFileSync(DB_FILE,JSON.stringify(db,null,2));}
-const DEFAULT_TABLE=`◈━📅 PACOTES C.D VODANET ━━◈\n\n┣🛒 10 MT ➝ 500 MB 📲\n┣🛒 15 MT ➝ 750 MB 📲\n┣🛒 20 MT ➝ 1.024 MB 📲\n┣🛒 25 MT ➝ 1.250 MB 📲\n┣🛒 30 MT ➝ 1.500 MB 📲\n┣🛒 35 MT ➝ 1.750 MB 📲\n┣🛒 40 MT ➝ 2.048 MB 📲\n┣🛒 45 MT ➝ 2.250 MB 📲\n┣🛒 50 MT ➝ 2.500 MB 📲\n┣🛒 55 MT ➝ 2.750 MB 📲\n┣🛒 60 MT ➝ 3.072 MB 📲\n━━━━━━━━━━━━\n⚡ Ativação rápida | ⏰ 24h | 🤖 C.D VODANET`;
-function groupDefault(){return {table:DEFAULT_TABLE,pagamentos:{mpesa:[{number:'856662085',name:'SUZANA'}],emola:[]},nanos:{},purchases:{},pending:{},members:{},stats:{sales:0}};}
+
+// TABELA NOVA QUE VOCE MANDOU - ANTIGA REMOVIDA
+const DEFAULT_TABLE = `◈━📅 PACOTES DIÁRIOS ━━◈
+┣🛒 10 MT ➝ 500 MB 📲
+┣🛒 15 MT ➝ 750 MB 📲
+┣🛒 20 MT ➝ 1.024 MB 📲
+┣🛒 25 MT ➝ 1.250 MB 📲
+┣🛒 30 MT ➝ 1.500 MB 📲
+┣🛒 35 MT ➝ 1.750 MB 📲
+┣🛒 40 MT ➝ 2.048 MB 📲
+┣🛒 45 MT ➝ 2.250 MB 📲
+┣🛒 50 MT ➝ 2.500 MB 📲
+┣🛒 55 MT ➝ 2.750 MB 📲
+┣🛒 60 MT ➝ 3.072 MB 📲
+┣🛒 65 MT ➝ 3.250 MB 📲
+┣🛒 70 MT ➝ 3.500 MB 📲
+┣🛒 75 MT ➝ 3.750 MB 📲
+┣🛒 80 MT ➝ 4.096 MB 📲
+┣🛒 85 MT ➝ 4.250 MB 📲
+┣🛒 90 MT ➝ 4.500 MB 📲
+┣🛒 95 MT ➝ 4.750 MB 📲
+┣🛒 100 MT ➝ 5.120 MB 📲
+
+• + de 100 MT TÊM.
+
+𝗡𝗕: 𝗧𝗔𝗕𝗘𝗟𝗔:
+"𝗦𝗘𝗠𝗔𝗡𝗔𝗟" & "𝗠𝗘𝗡𝗦𝗔𝗟"
+𝗗𝗜𝗚𝗜𝗧𝗔: "𝗣𝗔𝗖𝗢𝗧𝗘𝗦"
+
+╭━━━┛ ✨ PACOTES ESPECIAIS
+┃ 😈 230 MT ➝ 10.240 MB / 24H
+╰━━━━━━━━━━━━━━━━╯`;
+
+function groupDefault(){return {table:DEFAULT_TABLE,pagamentos:{mpesa:{numero:'856622085',nome:'SUZANA'},emola:[]},ativo:true};}
 function ensureGroup(jid){if(!db.groups[jid])db.groups[jid]=groupDefault();return db.groups[jid];}
-async function callMacroDroid(numero,quantidade){const url=process.env.MACRODROID_WEBHOOK_M1||process.env.MACRODROID_WEBHOOK_URL;if(!url)return {ok:false};try{const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({numero:String(numero).replace(/\D/g,''),quantidade:String(quantidade)})});const txt=await res.text();return {ok:res.ok,txt};}catch(e){return {ok:false,err:e.message};}}
-const app=express();app.use(express.json());app.get('/',(req,res)=>res.send('CLEY AUTOMATICO ONLINE - CODIGO ATIVO'));app.listen(PORT,()=>logger.info('Web ON '+PORT));
+
+const app=express();app.use(express.json());
+
+// VARIAVEIS DO QR CODE
+let qrCodeData=null;
+let isConnected=false;
+
+// ROTA COM QR CODE
+app.get('/',async(req,res)=>{
+ if(isConnected){
+   res.send('<h1>✅ CLEY CONECTADO!</h1><p>Bot online</p>');
+ } else if(qrCodeData){
+   try{
+     const qrImage=await QRCode.toDataURL(qrCodeData);
+     res.send(`<div style="text-align:center;font-family:sans-serif"><h1>CLEY AUTOMATICO - QR CODE</h1><img src="${qrImage}" width="330" style="border:8px solid black;border-radius:12px"><br><br><p>WhatsApp > Aparelhos > Conectar</p><p>QR expira em 30s - recarrega</p><script>setTimeout(()=>location.reload(),25000)</script></div>`);
+   }catch(e){res.send('Gerando QR...');}
+ } else {
+   res.send('<h1>Gerando QR... recarregue em 5s</h1><script>setTimeout(()=>location.reload(),5000)</script>');
+ }
+});
+
 async function startBot(){
-const {state,saveCreds}=await useMultiFileAuthState('./auth');
-const {version}=await fetchLatestBaileysVersion();
-const sock=makeWASocket({version,auth:{creds:state.creds,keys:makeCacheableSignalKeyStore(state.keys,pino({level:'silent'}))},logger:pino({level:'silent'}),printQRInTerminal:false,browser:["C.D VODANET","Chrome","1.0"]});
-if(!sock.authState.creds.registered){
- setTimeout(async()=>{
-  try{const code=await sock.requestPairingCode(PHONE);
-   console.log('=================================');
-   console.log(' SEU CODIGO CLEY: '+code);
-   console.log('=================================');
-  }catch(e){console.log('Erro codigo:',e.message)}
- },3000);
+ const {state,saveCreds}=await useMultiFileAuthState('./auth');
+ const {version}=await fetchLatestBaileysVersion();
+ const sock=makeWASocket({version,auth:{creds:state.creds,keys:makeCacheableSignalKeyStore(state.keys,logger)},logger,printQRInTerminal:false,browser:['CLEY-AUTOMATICO','Chrome','1.0']});
+ sock.ev.on('creds.update',saveCreds);
+ sock.ev.on('connection.update',async(u)=>{
+  const {connection,lastDisconnect,qr}=u;
+  if(qr){qrCodeData=qr;isConnected=false;console.log('QR GERADO');}
+  if(connection==='close'){isConnected=false;qrCodeData=null;const rec=lastDisconnect?.error?.output?.statusCode!==DisconnectReason.loggedOut;if(rec)startBot();}
+  if(connection==='open'){isConnected=true;qrCodeData=null;console.log('✅ CONECTADO!');}
+ });
+ sock.ev.on('messages.upsert',async m=>{
+  const msg=m.messages[0];if(!msg.message||msg.key.fromMe)return;
+  const from=msg.key.remoteJid;const body=msg.message.conversation||msg.message.extendedTextMessage?.text||'';
+  if(!body.startsWith(PREFIX))return;
+  const args=body.slice(PREFIX.length).trim().split(/ +/);const cmd=args.shift().toLowerCase();
+  const group=from.endsWith('@g.us')?ensureGroup(from):null;
+  if(cmd==='menu'||cmd==='tabela'){await sock.sendMessage(from,{text:group?group.table:DEFAULT_TABLE});}
+  if(cmd==='pacotes'){await sock.sendMessage(from,{text:'Digite o valor que deseja, ex: 100 para 5GB'});}
+  saveDB();
+ });
 }
-sock.ev.on('creds.update',saveCreds);
-sock.ev.on('connection.update',u=>{const {connection,lastDisconnect}=u;if(connection==='close'){const should=lastDisconnect?.error?.output?.statusCode!==DisconnectReason.loggedOut;if(should)startBot();}if(connection==='open')logger.info('CLEY CONECTADO COM CODIGO');});
-sock.ev.on('messages.upsert',async m=>{const msg=m.messages[0];if(!msg.message||msg.key.fromMe)return;const from=msg.key.remoteJid;const g=ensureGroup(from);const text=msg.message.conversation||msg.message.extendedTextMessage?.text||msg.message.imageMessage?.caption||'';const lower=text.toLowerCase();if(lower.includes('tabela')||lower.includes('quero megas')||lower.includes('pacote')){if(fs.existsSync(MENU_IMAGE))await sock.sendMessage(from,{image:fs.readFileSync(MENU_IMAGE),caption:g.table+'\n\n💳 M-PESA: 856662085 - SUZANA'});else await sock.sendMessage(from,{text:g.table});return;}if(!text.startsWith(PREFIX))return;const args=text.slice(1).trim().split(/\s+/);const cmd=args[0].toLowerCase();if(cmd==='menu'){if(fs.existsSync(MENU_IMAGE))await sock.sendMessage(from,{image:fs.readFileSync(MENU_IMAGE),caption:'🤖 CLEY AUTOMATICO\nC.D VODANET'});else await sock.sendMessage(from,{text:'🤖 CLEY AUTOMATICO'});return;}if(cmd==='tabela')await sock.sendMessage(from,{text:g.table});else if(cmd==='compra'){const v=parseInt(args[1]);const map={10:500,15:750,20:1024,25:1250,30:1500,35:1750,40:2048,45:2250,50:2500,55:2750,60:3072};if(!map[v]){await sock.sendMessage(from,{text:'Pacote inválido'});return;}db.groups[from].pending[Date.now()]={valor:v,mb:map[v],cliente:msg.pushName};saveDB();await sock.sendMessage(from,{text:`🛒 PEDIDO: ${v}MT -> ${map[v]}MB\n💳 856662085 SUZANA\nDepois:.confirmar 84xxxxxxx`});}else if(cmd==='confirmar'){let num=args[1]?.replace(/\D/g,'');const keys=Object.keys(g.pending);if(!keys.length){await sock.sendMessage(from,{text:'Sem pendentes'});return;}const lastKey=keys[keys.length-1];const p=g.pending[lastKey];await sock.sendMessage(from,{text:`🚀 Enviando ${p.mb}MB para ${num}...`});const r=await callMacroDroid(num,p.mb);if(r.ok){await sock.sendMessage(from,{text:`✅ ${p.mb}MB ENVIADO PARA ${num}`});delete g.pending[lastKey];saveDB();}else await sock.sendMessage(from,{text:'⚠️ Configure MACRODROID no Render'});}else if(cmd==='bot')await sock.sendMessage(from,{text:'🤖 CLEY ONLINE - CODIGO ATIVO'});});}startBot();
+app.listen(PORT,()=>{console.log('Rodando '+PORT);startBot();});
